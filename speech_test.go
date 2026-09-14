@@ -77,9 +77,15 @@ func TestTTSConfig(t *testing.T) {
 
 	// Verify error when config fields are missing
 	emptySynth := NewSynthesizer(TTSConfig{})
-	_, err := emptySynth.Synthesize("halo", "", "")
+	_, err := emptySynth.Synthesize("halo", "test.wav")
 	if err == nil {
 		t.Error("expected error when URL is missing, got nil")
+	}
+
+	// Verify error when outputPath is missing
+	_, errEmptyPath := emptySynth.Synthesize("halo", "")
+	if errEmptyPath == nil {
+		t.Error("expected error when outputPath is empty, got nil")
 	}
 }
 

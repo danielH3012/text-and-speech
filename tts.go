@@ -21,22 +21,13 @@ import (
 
 // NewSynthesizer creates a new TTS synthesizer with user-provided TTSConfig.
 func NewSynthesizer(cfg TTSConfig) Synthesizer {
-	return NewTemplateSynthesizer(cfg)
-}
-
-// TemplateSynthesizer is a TTS adapter driven directly by user-provided TTSConfig.
-type TemplateSynthesizer struct {
-	config TTSConfig
-}
-
-// NewTemplateSynthesizer creates a synthesizer with the given user-input configuration.
-func NewTemplateSynthesizer(cfg TTSConfig) *TemplateSynthesizer {
 	return &TemplateSynthesizer{config: cfg}
 }
 
-// NewTemplateSynthesizerWithConfig is an alias for NewTemplateSynthesizer.
-func NewTemplateSynthesizerWithConfig(cfg TTSConfig) Synthesizer {
-	return NewTemplateSynthesizer(cfg)
+// TemplateSynthesizer is a TTS adapter driven directly by user-provided TTSConfig.
+// The output is fixed to a .wav file.
+type TemplateSynthesizer struct {
+	config TTSConfig
 }
 
 func (s *TemplateSynthesizer) Name() string {
@@ -46,7 +37,41 @@ func (s *TemplateSynthesizer) Name() string {
 	return "generic"
 }
 
-func (s *TemplateSynthesizer) Synthesize(text, voiceID, lang string) ([]byte, error) {
+// Synthesize converts text directly into a .wav file at outputPath.
+func (s *TemplateSynthesizer) Synthesize(text, outputPath string, voiceID ...string) (string, error) {
+	vID := ""
+	if len(voiceID) > 0 {
+		vID = voiceID[0]
+	}
+	return s.SynthesizeToFile(text, outputPath, vID, "")
+}
+
+// SynthesizeToFile converts text into speech and saves it as a .wav file at outputPath.
+// It ensures the saved file is always in valid 16-bit PCM WAV format.
+func (s *TemplateSynthesizer) SynthesizeToFile(text, outputPath, voiceID, lang string) (string, error) {
+	if strings.TrimSpace(outputPath) == "" {
+		return "", fmt.Errorf("outputPath is required")
+	}
+
+	audioBytes, err := s.synthesizeBytes(text, voiceID, lang)
+	if err != nil {
+		return "", err
+	}
+
+	if !strings.HasSuffix(strings.ToLower(outputPath), ".wav") {
+		outputPath = outputPath + ".wav"
+	}
+
+	if err := saveBytesAsWAV(audioBytes, outputPath); err != nil {
+		return "", fmt.Errorf("failed to save .wav file: %w", err)
+	}
+
+	log.Printf("[%s TTS] saved .wav file to %s (%d bytes)", s.Name(), outputPath, len(audioBytes))
+	return outputPath, nil
+}
+
+// synthesizeBytes executes the API call to obtain raw audio bytes.
+func (s *TemplateSynthesizer) synthesizeBytes(text, voiceID, lang string) ([]byte, error) {
 	if strings.TrimSpace(text) == "" {
 		return nil, fmt.Errorf("text is empty")
 	}
@@ -71,7 +96,6 @@ func (s *TemplateSynthesizer) Synthesize(text, voiceID, lang string) ([]byte, er
 	if voice == "" {
 		voice = s.config.GetVoice()
 	}
-	format := s.config.Format
 
 	if lang == "" {
 		lang = DetectLanguageTTS(text)
@@ -83,7 +107,6 @@ func (s *TemplateSynthesizer) Synthesize(text, voiceID, lang string) ([]byte, er
 	}
 
 	authPrefix := s.config.GetAuthPrefix()
-	accept := s.config.Accept
 	decode := strings.EqualFold(s.config.GetDecode(), "base64")
 
 	maskedKey := apiKey
@@ -116,7 +139,7 @@ func (s *TemplateSynthesizer) Synthesize(text, voiceID, lang string) ([]byte, er
 		Model:    jsonEsc(model),
 		Voice:    jsonEsc(voice),
 		Lang:     jsonEsc(lang),
-		Format:   jsonEsc(format),
+		Format:   "wav",
 		VoiceID:  jsonEsc(voice),
 		VoiceId:  jsonEsc(voice),
 		ModelID:  jsonEsc(model),
@@ -140,9 +163,9 @@ func (s *TemplateSynthesizer) Synthesize(text, voiceID, lang string) ([]byte, er
 		fullAuth = strings.TrimSpace(authPrefix) + " " + apiKey
 	}
 	req.Header.Set(authHeader, fullAuth)
-	if accept != "" {
-		req.Header.Set("Accept", accept)
-	}
+
+	// Set default audio accept header if not overridden in ExtraHeaders
+	req.Header.Set("Accept", "audio/wav, audio/*, */*")
 	for k, v := range s.config.ExtraHeaders {
 		req.Header.Set(k, v)
 	}
@@ -237,31 +260,8 @@ func DetectLanguageTTS(text string) string {
 	return "en"
 }
 
-// SynthesizeToFile converts text into speech and saves it as a .wav file at outputPath.
-// If outputPath is empty, it defaults to "output.wav".
-// It ensures the saved file is in valid WAV format (converting via ffmpeg if necessary).
-func (s *TemplateSynthesizer) SynthesizeToFile(text, outputPath, voiceID, lang string) (string, error) {
-	audioBytes, err := s.Synthesize(text, voiceID, lang)
-	if err != nil {
-		return "", err
-	}
-
-	if strings.TrimSpace(outputPath) == "" {
-		outputPath = "output.wav"
-	} else if !strings.HasSuffix(strings.ToLower(outputPath), ".wav") {
-		outputPath = outputPath + ".wav"
-	}
-
-	if err := saveBytesAsWAV(audioBytes, outputPath); err != nil {
-		return "", fmt.Errorf("failed to save .wav file: %w", err)
-	}
-
-	log.Printf("[%s TTS] saved .wav file to %s (%d bytes)", s.Name(), outputPath, len(audioBytes))
-	return outputPath, nil
-}
-
-// saveBytesAsWAV ensures audioBytes is saved to outputPath as a valid WAV file.
-// If the bytes are not already in WAV format (e.g. MP3/OGG), it attempts conversion via ffmpeg.
+// saveBytesAsWAV ensures audioBytes is saved to outputPath as a valid 16-bit PCM WAV file.
+// If the bytes are not already in WAV format (e.g. MP3/OGG), it automatically converts via ffmpeg.
 func saveBytesAsWAV(audioBytes []byte, outputPath string) error {
 	dir := filepath.Dir(outputPath)
 	if dir != "" && dir != "." {
@@ -289,40 +289,20 @@ func saveBytesAsWAV(audioBytes []byte, outputPath string) error {
 	return nil
 }
 
-// Synthesize converts text into a .wav file at outputPath using the user-provided TTSConfig.
-// If outputPath is omitted or empty, it defaults to "output.wav".
-// Returns the file path of the generated .wav file.
-func Synthesize(cfg TTSConfig, text string, outputPath ...string) (string, error) {
-	out := "output.wav"
-	if len(outputPath) > 0 && strings.TrimSpace(outputPath[0]) != "" {
-		out = outputPath[0]
-	}
-	synth := NewTemplateSynthesizer(cfg)
-	return synth.SynthesizeToFile(text, out, cfg.GetVoice(), "")
+// Synthesize converts text into a .wav file at outputPath using user-provided TTSConfig.
+func Synthesize(cfg TTSConfig, text, outputPath string) (string, error) {
+	synth := NewSynthesizer(cfg)
+	return synth.SynthesizeToFile(text, outputPath, cfg.GetVoice(), "")
 }
 
 // SynthesizeToFile converts text to speech and saves it as a .wav file at outputPath using user-provided TTSConfig.
-// If outputPath is empty, it defaults to "output.wav".
-// Returns the path to the saved .wav file.
 func SynthesizeToFile(cfg TTSConfig, text, outputPath, voiceID, lang string) (string, error) {
-	synth := NewTemplateSynthesizer(cfg)
+	synth := NewSynthesizer(cfg)
 	return synth.SynthesizeToFile(text, outputPath, voiceID, lang)
-}
-
-// SynthesizeToWav converts text to a .wav file at outputPath (default: "output.wav") using user-provided TTSConfig.
-func SynthesizeToWav(cfg TTSConfig, text, outputPath string) (string, error) {
-	return SynthesizeToFile(cfg, text, outputPath, "", "")
-}
-
-// TextToSpeech converts text into a .wav file using user-provided TTSConfig.
-// If outputPath is omitted or empty, it defaults to "output.wav".
-// Returns the file path to the generated .wav file.
-func TextToSpeech(cfg TTSConfig, text string, outputPath ...string) (string, error) {
-	return Synthesize(cfg, text, outputPath...)
 }
 
 // SynthesizeBytes synthesizes text into raw audio bytes in memory using user-provided TTSConfig.
 func SynthesizeBytes(cfg TTSConfig, text, voiceID, lang string) ([]byte, error) {
-	synth := NewTemplateSynthesizer(cfg)
-	return synth.Synthesize(text, voiceID, lang)
+	synth := &TemplateSynthesizer{config: cfg}
+	return synth.synthesizeBytes(text, voiceID, lang)
 }

@@ -19,7 +19,7 @@ import (
 
 // NewTranscriber creates a new STT transcriber with user-provided STTConfig.
 func NewTranscriber(cfg STTConfig) Transcriber {
-	return NewGenericTranscriber(cfg)
+	return &GenericTranscriber{config: cfg}
 }
 
 // preprocessAudio cleans background noise, removes DC rumble,
@@ -70,16 +70,6 @@ func parseTranscriptResponse(raw []byte, contentType string) string {
 // GenericTranscriber is an STT adapter driven directly by user-provided STTConfig.
 type GenericTranscriber struct {
 	config STTConfig
-}
-
-// NewGenericTranscriber creates a transcriber with the given user-input configuration.
-func NewGenericTranscriber(cfg STTConfig) *GenericTranscriber {
-	return &GenericTranscriber{config: cfg}
-}
-
-// NewGenericTranscriberWithConfig is an alias for NewGenericTranscriber.
-func NewGenericTranscriberWithConfig(cfg STTConfig) Transcriber {
-	return NewGenericTranscriber(cfg)
 }
 
 func (t *GenericTranscriber) Name() string {
@@ -190,11 +180,7 @@ func (t *GenericTranscriber) Transcribe(audioPath string) (string, error) {
 
 // Transcribe converts an audio file into a text string using the user-provided STTConfig.
 func Transcribe(cfg STTConfig, audioPath string) (string, error) {
-	transcriber := NewGenericTranscriber(cfg)
+	transcriber := NewTranscriber(cfg)
 	return transcriber.Transcribe(audioPath)
 }
 
-// TranscribeAudio transcribes an audio file into a text string using the user-provided STTConfig.
-func TranscribeAudio(cfg STTConfig, audioPath string) (string, error) {
-	return Transcribe(cfg, audioPath)
-}

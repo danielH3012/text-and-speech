@@ -33,7 +33,7 @@ Package Go untuk integrasi **Text-to-Speech (TTS)** dan **Speech-to-Text (STT / 
 ## Tipe Data & Konfigurasi (Types)
 
 ### 1. `TTSConfig`
-Digunakan untuk menentukan parameter endpoint penyedia layanan TTS (Inworld, OpenAI, ElevenLabs, Cartesia, dll.).
+Digunakan untuk menentukan parameter endpoint penyedia layanan TTS (Inworld, OpenAI, ElevenLabs, Cartesia, dll.). Output audio selalu difikskan menjadi **`.wav`** (16-bit PCM WAV) secara otomatis tanpa memerlukan input format dari user.
 
 | Field | Tipe | Keterangan | Contoh |
 | :--- | :--- | :--- | :--- |
@@ -45,8 +45,6 @@ Digunakan untuk menentukan parameter endpoint penyedia layanan TTS (Inworld, Ope
 | `TTS_DECODE` | `string` | Isi `"base64"` jika API mengembalikan payload JSON terenkode Base64. | `"base64"` |
 | `TTS_BODY_TEMPLATE` | `string` | Template JSON untuk request body (Go template). | `{"text":"{{.Text}}","voiceId":"{{.Voice}}"}` |
 | `AuthHeader` | `string` | *(Opsional)* Nama header auth (default: `"Authorization"`). | `"xi-api-key"` |
-| `Format` | `string` | *(Opsional)* Format audio yang diminta ke API jika didukung. | `"wav"` |
-| `Accept` | `string` | *(Opsional)* Nilai header `Accept`. | `"audio/wav"` |
 | `ExtraHeaders` | `map[string]string` | *(Opsional)* Header HTTP tambahan. | `{"X-Custom": "val"}` |
 
 > **Catatan:** `TTSConfig` juga mendukung penamaan field camelCase (`APIKey`, `URL`, `Model`, `Voice`, `AuthPrefix`, `Decode`, `BodyTemplate`) sebagai alias.
@@ -77,7 +75,9 @@ Digunakan untuk menentukan parameter endpoint penyedia layanan Speech-to-Text / 
 ```go
 type Synthesizer interface {
     Name() string
-    Synthesize(text, voiceID, lang string) ([]byte, error)
+    // Synthesize langsung menghasilkan file .wav (default: "output.wav")
+    Synthesize(text string, voiceID ...string) (string, error)
+    // SynthesizeToFile menyimpan hasil ke path tertentu
     SynthesizeToFile(text, outputPath, voiceID, lang string) (string, error)
 }
 
@@ -94,14 +94,14 @@ type Transcriber interface {
 ### Fungsi Top-Level (TTS)
 
 #### 1. `Synthesize`
-Mengonversi teks ke file audio `.wav`.
+Mengonversi teks ke file audio `.wav` pada path yang ditentukan.
 ```go
-func Synthesize(cfg TTSConfig, text string, outputPath ...string) (string, error)
+func Synthesize(cfg TTSConfig, text, outputPath string) (string, error)
 ```
 - **Input**:
   - `cfg`: `TTSConfig`
   - `text`: `string` (Teks yang ingin diucapkan)
-  - `outputPath` *(opsional)*: `string` (Path file tujuan. Default: `"output.wav"`)
+  - `outputPath`: `string` (Wajib diisi: path file tujuan, misal `"output.wav"`)
 - **Output**:
   - `string`: Path file `.wav` yang dihasilkan.
   - `error`: Error jika sintesis gagal atau validasi konfigurasi tidak lengkap.
@@ -116,7 +116,7 @@ func SynthesizeToFile(cfg TTSConfig, text, outputPath, voiceID, lang string) (st
 - **Input**:
   - `cfg`: `TTSConfig`
   - `text`: `string` (Teks sumber)
-  - `outputPath`: `string` (Path file tujuan, jika kosong default `"output.wav"`)
+  - `outputPath`: `string` (Wajib diisi: path file tujuan)
   - `voiceID`: `string` (Voice ID override, atau kosongkan untuk memakai default dari config)
   - `lang`: `string` (Bahasa override, atau kosongkan untuk deteksi otomatis)
 - **Output**:
@@ -125,32 +125,7 @@ func SynthesizeToFile(cfg TTSConfig, text, outputPath, voiceID, lang string) (st
 
 ---
 
-#### 3. `SynthesizeToWav`
-Alias praktis untuk membuat file `.wav` dengan voice dan bahasa default.
-```go
-func SynthesizeToWav(cfg TTSConfig, text, outputPath string) (string, error)
-```
-- **Input**:
-  - `cfg`: `TTSConfig`
-  - `text`: `string`
-  - `outputPath`: `string`
-- **Output**:
-  - `string`: Path file `.wav`.
-  - `error`: Error jika gagal.
-
----
-
-#### 4. `TextToSpeech`
-Alias untuk `Synthesize`.
-```go
-func TextToSpeech(cfg TTSConfig, text string, outputPath ...string) (string, error)
-```
-- **Input**: `cfg TTSConfig`, `text string`, `outputPath ...string`
-- **Output**: `string` (Path file `.wav`), `error`
-
----
-
-#### 5. `SynthesizeBytes`
+#### 3. `SynthesizeBytes`
 Melakukan sintesis suara dan mengembalikan data mentah audio dalam bentuk byte buffer di memori tanpa menyimpan file ke disk.
 ```go
 func SynthesizeBytes(cfg TTSConfig, text, voiceID, lang string) ([]byte, error)
@@ -171,14 +146,13 @@ func SynthesizeBytes(cfg TTSConfig, text, voiceID, lang string) ([]byte, error)
 #### Inisialisasi Instance
 ```go
 func NewSynthesizer(cfg TTSConfig) Synthesizer
-func NewTemplateSynthesizer(cfg TTSConfig) *TemplateSynthesizer
 ```
 
 #### Method pada `*TemplateSynthesizer`
+- `(s *TemplateSynthesizer) Synthesize(text, outputPath string, voiceID ...string) (string, error)`:
+  Mengonversi teks ke file audio `.wav` pada `outputPath` yang ditentukan.
 - `(s *TemplateSynthesizer) SynthesizeToFile(text, outputPath, voiceID, lang string) (string, error)`:
-  Menyimpan audio hasil sintesis sebagai file `.wav`.
-- `(s *TemplateSynthesizer) Synthesize(text, voiceID, lang string) ([]byte, error)`:
-  Mengembalikan byte audio mentah.
+  Menyimpan audio hasil sintesis sebagai file `.wav` ke path yang ditentukan dengan opsi voice ID dan bahasa manual.
 - `(s *TemplateSynthesizer) Name() string`:
   Mengembalikan nama model atau identitas synthesizer.
 
@@ -222,22 +196,12 @@ func Transcribe(cfg STTConfig, audioPath string) (string, error)
 
 ---
 
-#### 2. `TranscribeAudio`
-Alias untuk fungsi `Transcribe`.
-```go
-func TranscribeAudio(cfg STTConfig, audioPath string) (string, error)
-```
-- **Input**: `cfg STTConfig`, `audioPath string`
-- **Output**: `string` (Hasil teks), `error`
-
----
 
 ### Instance Method (Transcriber)
 
 #### Inisialisasi Instance
 ```go
 func NewTranscriber(cfg STTConfig) Transcriber
-func NewGenericTranscriber(cfg STTConfig) *GenericTranscriber
 ```
 
 #### Method pada `*GenericTranscriber`

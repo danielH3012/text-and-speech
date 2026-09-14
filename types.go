@@ -24,8 +24,6 @@ type TTSConfig struct {
 
 	// Optional additional parameters
 	AuthHeader   string            `json:"tts_auth_header,omitempty"`
-	Format       string            `json:"tts_format,omitempty"`
-	Accept       string            `json:"tts_accept,omitempty"`
 	ExtraHeaders map[string]string `json:"extra_headers,omitempty"`
 }
 
@@ -204,8 +202,8 @@ type Adapter interface {
 // Synthesizer is the pluggable contract for any text-to-speech provider.
 type Synthesizer interface {
 	Adapter
-	// Synthesize converts text into speech audio bytes.
-	Synthesize(text, voiceID, lang string) ([]byte, error)
+	// Synthesize converts text directly into a .wav file at outputPath.
+	Synthesize(text, outputPath string, voiceID ...string) (string, error)
 	// SynthesizeToFile converts text into speech and saves it as a .wav file at outputPath.
 	SynthesizeToFile(text, outputPath, voiceID, lang string) (string, error)
 }
