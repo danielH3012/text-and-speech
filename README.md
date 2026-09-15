@@ -264,7 +264,7 @@ func main() {
 
 ---
 
-### 2. Contoh Text-to-Speech (OpenAI TTS)
+### 2. Contoh Text-to-Speech (OpenAI TTS - Otomatis & Ringkas)
 ```go
 package main
 
@@ -274,13 +274,12 @@ import (
 )
 
 func main() {
+	// Berkat Smart Provider, Bearer auth dan request body otomatis ditangani
 	cfg := textandspeech.TTSConfig{
-		API_KEY:           "sk-proj-...",
-		TTS_URL:           "https://api.openai.com/v1/audio/speech",
-		TTS_MODEL:         "tts-1",
-		TTS_VOICE:         "alloy",
-		TTS_AUTH_PREFIX:   "Bearer ",
-		TTS_BODY_TEMPLATE: `{"model":"{{.Model}}","input":"{{.Text}}","voice":"{{.Voice}}"}`,
+		API_KEY:   "sk-proj-...",
+		TTS_URL:   "https://api.openai.com/v1/audio/speech",
+		TTS_MODEL: "tts-1",
+		TTS_VOICE: "alloy",
 	}
 
 	wavFile, err := textandspeech.Synthesize(cfg, "Hello from OpenAI TTS", "speech_openai.wav")
@@ -293,7 +292,38 @@ func main() {
 
 ---
 
-### 3. Contoh Speech-to-Text (ElevenLabs Scribe - Bahasa Indonesia & Inggris)
+### 3. Contoh Custom / Self-Hosted TTS (Menggunakan `TTS_BODY_TEMPLATE`)
+```go
+package main
+
+import (
+	"log"
+	"text-and-speech"
+)
+
+func main() {
+	// Jika menggunakan server internal atau API kustom di luar Smart Provider,
+	// Anda bisa mendefinisikan template JSON dan auth prefix sendiri secara fleksibel:
+	cfg := textandspeech.TTSConfig{
+		API_KEY:           "my-secret-token",
+		TTS_URL:           "https://custom-tts.company.internal/v1/synthesize",
+		TTS_MODEL:         "fastspeech2-id",
+		TTS_VOICE:         "speaker-01",
+		TTS_AUTH_PREFIX:   "Bearer ",
+		TTS_BODY_TEMPLATE: `{"prompt":"{{.Text}}","speaker":"{{.Voice}}","speed":1.0}`,
+	}
+
+	wavFile, err := textandspeech.Synthesize(cfg, "Sintesis suara menggunakan server kustom sendiri.", "custom_output.wav")
+	if err != nil {
+		log.Fatalf("Error: %v", err)
+	}
+	log.Println("File WAV tersimpan di:", wavFile)
+}
+```
+
+---
+
+### 4. Contoh Speech-to-Text (ElevenLabs Scribe - Bahasa Indonesia & Inggris)
 
 #### A. Mengunci ke Bahasa Indonesia (`id`)
 ```go
