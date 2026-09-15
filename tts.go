@@ -101,10 +101,7 @@ func (s *TemplateSynthesizer) synthesizeBytes(text, voiceID, lang string) ([]byt
 		lang = DetectLanguageTTS(text)
 	}
 
-	authHeader := s.config.AuthHeader
-	if strings.TrimSpace(authHeader) == "" {
-		authHeader = "Authorization"
-	}
+	authHeader := s.config.GetAuthHeader()
 
 	authPrefix := s.config.GetAuthPrefix()
 	decode := strings.EqualFold(s.config.GetDecode(), "base64")

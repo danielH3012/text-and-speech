@@ -17,6 +17,22 @@ import (
 	"github.com/google/uuid"
 )
 
+// NormalizeSTTLanguage standardizes language codes:
+// "id" for Indonesian, "en" for English, or "" for auto-detect (bilingual / dwibahasa).
+func NormalizeSTTLanguage(lang string) string {
+	l := strings.ToLower(strings.TrimSpace(lang))
+	switch l {
+	case "id", "indonesia", "indonesian", "bahasa":
+		return "id"
+	case "en", "english", "inggris":
+		return "en"
+	case "auto", "detect", "both", "all", "":
+		return ""
+	default:
+		return l
+	}
+}
+
 // NewTranscriber creates a new STT transcriber with user-provided STTConfig.
 func NewTranscriber(cfg STTConfig) Transcriber {
 	return &GenericTranscriber{config: cfg}
@@ -52,16 +68,46 @@ func parseTranscriptResponse(raw []byte, contentType string) string {
 		var payload struct {
 			Text       string `json:"text"`
 			OutputText string `json:"output_text"`
-			Data       struct {
+			Transcript string `json:"transcript"`
+			Result     struct {
+				Text string `json:"text"`
+			} `json:"result"`
+			Data struct {
 				Text string `json:"text"`
 			} `json:"data"`
+			Results struct {
+				Transcripts []struct {
+					Transcript string `json:"transcript"`
+				} `json:"transcripts"`
+				Channels []struct {
+					Alternatives []struct {
+						Transcript string `json:"transcript"`
+					} `json:"alternatives"`
+				} `json:"channels"`
+			} `json:"results"`
 		}
 		if err := json.Unmarshal(raw, &payload); err == nil {
-			for _, candidate := range []string{payload.Text, payload.OutputText, payload.Data.Text} {
+			candidates := []string{
+				payload.Text,
+				payload.OutputText,
+				payload.Transcript,
+				payload.Result.Text,
+				payload.Data.Text,
+			}
+			if len(payload.Results.Transcripts) > 0 {
+				candidates = append(candidates, payload.Results.Transcripts[0].Transcript)
+			}
+			if len(payload.Results.Channels) > 0 && len(payload.Results.Channels[0].Alternatives) > 0 {
+				candidates = append(candidates, payload.Results.Channels[0].Alternatives[0].Transcript)
+			}
+			for _, candidate := range candidates {
 				if strings.TrimSpace(candidate) != "" {
 					return strings.TrimSpace(candidate)
 				}
 			}
+			// When JSON was parsed successfully but candidate was empty (e.g. silent audio),
+			// return empty string instead of raw JSON
+			return ""
 		}
 	}
 	return strings.TrimSpace(string(raw))
@@ -91,7 +137,7 @@ func (t *GenericTranscriber) Transcribe(audioPath string) (string, error) {
 	}
 
 	model := t.config.GetModel()
-	language := t.config.GetLanguage()
+	language := NormalizeSTTLanguage(t.config.GetLanguage())
 	fileField := t.config.GetFileField()
 	modelField := t.config.GetModelField()
 	langField := t.config.GetLanguageField()
@@ -136,6 +182,8 @@ func (t *GenericTranscriber) Transcribe(audioPath string) (string, error) {
 	}
 
 	_ = writer.WriteField(modelField, model)
+	// Write language field if explicitly specified (e.g. "id" or "en").
+	// If empty/auto, omit the field to allow automatic language detection.
 	if language != "" && langField != "" {
 		_ = writer.WriteField(langField, language)
 	}
@@ -183,4 +231,3 @@ func Transcribe(cfg STTConfig, audioPath string) (string, error) {
 	transcriber := NewTranscriber(cfg)
 	return transcriber.Transcribe(audioPath)
 }
-

@@ -20,6 +20,7 @@ Package Go untuk integrasi **Text-to-Speech (TTS)** dan **Speech-to-Text (STT / 
 4. [Dokumentasi Fungsi Speech-to-Text (Transcribe)](#dokumentasi-fungsi-speech-to-text-transcribe)
    - [Fungsi Top-Level](#fungsi-top-level-transcribe)
    - [Instance Method (Transcriber)](#instance-method-transcriber)
+   - [Helper Language Utility](#helper-language-utility)
 5. [Contoh Penggunaan Lengkap](#contoh-penggunaan-lengkap)
 
 ---
@@ -41,9 +42,9 @@ Digunakan untuk menentukan parameter endpoint penyedia layanan TTS (Inworld, Ope
 | `TTS_URL` | `string` | Endpoint URL POST untuk sintesis suara. | `"https://api.inworld.ai/tts/v1/voice"` |
 | `TTS_MODEL` | `string` | Nama / ID model TTS. | `"inworld-tts-2"` atau `"tts-1"` |
 | `TTS_VOICE` | `string` | Voice ID atau nama suara default. | `"Sarah"` atau `"alloy"` |
-| `TTS_AUTH_PREFIX` | `string` | Awalan token otentikasi pada header. | `"Basic "` atau `"Bearer "` |
-| `TTS_DECODE` | `string` | Isi `"base64"` jika API mengembalikan payload JSON terenkode Base64. | `"base64"` |
-| `TTS_BODY_TEMPLATE` | `string` | Template JSON untuk request body (Go template). | `{"text":"{{.Text}}","voiceId":"{{.Voice}}"}` |
+| `TTS_AUTH_PREFIX` | `string` | *(Opsional)* Awalan token otentikasi pada header (otomatis `"Basic "` untuk Inworld, `"Bearer "` untuk OpenAI). | `"Basic "` atau `"Bearer "` |
+| `TTS_DECODE` | `string` | *(Opsional)* Isi `"base64"` jika API mengembalikan payload Base64 (otomatis `"base64"` untuk Inworld). | `"base64"` |
+| `TTS_BODY_TEMPLATE` | `string` | *(Opsional)* Template JSON request body. Otomatis mengenali Inworld, OpenAI, Cartesia, dan ElevenLabs jika dikosongkan. | `{"text":"{{.Text}}","voiceId":"{{.Voice}}"}` |
 | `AuthHeader` | `string` | *(Opsional)* Nama header auth (default: `"Authorization"`). | `"xi-api-key"` |
 | `ExtraHeaders` | `map[string]string` | *(Opsional)* Header HTTP tambahan. | `{"X-Custom": "val"}` |
 
@@ -58,13 +59,13 @@ Digunakan untuk menentukan parameter endpoint penyedia layanan Speech-to-Text / 
 | :--- | :--- | :--- | :--- |
 | `API_KEY` | `string` | Kunci otentikasi API STT. | Wajib diisi |
 | `STT_URL` | `string` | Endpoint URL multipart POST untuk transkripsi audio. | Wajib diisi |
-| `STT_MODEL` | `string` | Nama model transkripsi. | `"whisper-large-v3"`, `"scribe_v2"` |
-| `STT_LANGUAGE` | `string` | *(Opsional)* Bahasa audio yang diharapkan. | `"id"`, `"en"` |
-| `STT_FILE_FIELD` | `string` | *(Opsional)* Nama multipart field untuk file audio. | `"file"` |
-| `STT_MODEL_FIELD` | `string` | *(Opsional)* Nama multipart field untuk model. | `"model"` |
-| `STT_LANGUAGE_FIELD` | `string` | *(Opsional)* Nama multipart field untuk bahasa. | `"language"` |
-| `STT_HEADER` | `string` | *(Opsional)* Nama header otentikasi. | `"Authorization"` |
-| `STT_AUTH_PREFIX` | `string` | *(Opsional)* Awalan token otentikasi. | `"Bearer "` |
+| `STT_MODEL` | `string` | Nama model transkripsi. | `"whisper-large-v3"`, `"scribe_v1"`, `"scribe_v2"` |
+| `STT_LANGUAGE` | `string` | *(Opsional)* Bahasa audio yang diharapkan (`"id"` untuk Indonesia, `"en"` untuk Inggris, atau `""`/`"auto"` untuk mode dwibahasa otomatis). | `""` (Auto-detect) |
+| `STT_FILE_FIELD` | `string` | *(Opsional)* Nama multipart field file audio. | `"file"` |
+| `STT_MODEL_FIELD` | `string` | *(Opsional)* Nama multipart field model (otomatis `"model_id"` untuk ElevenLabs & AssemblyAI, atau `"model"` untuk OpenAI/Groq). | Otomatis |
+| `STT_LANGUAGE_FIELD` | `string` | *(Opsional)* Nama multipart field bahasa (otomatis `"language_code"` untuk ElevenLabs/AssemblyAI, `"languageCode"` untuk Google, `"locale"` untuk Azure, `"lang"` untuk Yandex, atau `"language"` untuk OpenAI/Whisper). | Otomatis |
+| `STT_HEADER` | `string` | *(Opsional)* Nama header otentikasi (otomatis `"xi-api-key"` untuk ElevenLabs, atau `"Authorization"` untuk provider lainnya). | Otomatis |
+| `STT_AUTH_PREFIX` | `string` | *(Opsional)* Awalan token otentikasi (otomatis `""` untuk ElevenLabs/AssemblyAI, atau `"Bearer "` untuk OpenAI/Groq). | Otomatis |
 | `ExtraFields` | `map[string]string` | *(Opsional)* Field form multipart tambahan. | `nil` |
 | `ExtraHeaders` | `map[string]string` | *(Opsional)* Header HTTP tambahan. | `nil` |
 
@@ -191,11 +192,22 @@ func Transcribe(cfg STTConfig, audioPath string) (string, error)
   - `cfg`: `STTConfig` (Konfigurasi endpoint STT)
   - `audioPath`: `string` (Path file audio lokal, misalnya `.wav`, `.mp3`, `.m4a`, dll.)
 - **Output**:
-  - `string`: Teks hasil transkripsi.
+  - `string`: Teks hasil transkripsi bersih (otomatis mengekstrak field JSON `.text` jika provider mengembalikan JSON).
   - `error`: Error jika upload atau transkripsi gagal.
 
 ---
 
+#### 2. `NormalizeSTTLanguage`
+Helper utility untuk membakukan kode bahasa audio. Mengembalikan kode ISO 2 huruf (`"id"`, `"en"`), atau string kosong `""` jika disetel ke mode otomatis / dwibahasa.
+```go
+func NormalizeSTTLanguage(lang string) string
+```
+- **Input**:
+  - `lang string`: Nilai input bahasa seperti `"id"`, `"indonesia"`, `"en"`, `"english"`, `"auto"`, `"detect"`, atau `""`.
+- **Output**:
+  - `string`: `"id"` untuk Indonesia, `"en"` untuk Inggris, atau `""` untuk auto-detect dwibahasa.
+
+---
 
 ### Instance Method (Transcriber)
 
@@ -224,14 +236,13 @@ import (
 )
 
 func main() {
+	// Berkat auto-template, TTS_BODY_TEMPLATE, TTS_AUTH_PREFIX, dan TTS_DECODE
+	// otomatis terisi untuk Inworld, OpenAI, Cartesia, dan ElevenLabs!
 	cfg := textandspeech.TTSConfig{
-		API_KEY:           "ZHFfcUZQd05PR0o4MDhrbFlfN0Q1cTJYUUNJX0lIUUg6d21IejNlU2JRd2dvREVlLWFZdXlpSA==",
-		TTS_URL:           "https://api.inworld.ai/tts/v1/voice",
-		TTS_MODEL:         "inworld-tts-2",
-		TTS_VOICE:         "Sarah",
-		TTS_AUTH_PREFIX:   "Basic ",
-		TTS_DECODE:        "base64",
-		TTS_BODY_TEMPLATE: `{"text":"{{.Text}}","voiceId":"{{.Voice}}","modelId":"{{.Model}}"}`,
+		API_KEY:   "ZHFfcUZQd05PR0o4MDhrbFlfN0Q1cTJYUUNJX0lIUUg6d21IejNlU2JRd2dvREVlLWFZdXlpSA==",
+		TTS_URL:   "https://api.inworld.ai/tts/v1/voice",
+		TTS_MODEL: "inworld-tts-2",
+		TTS_VOICE: "Sarah",
 	}
 
 	// Cara 1: Menggunakan fungsi langsung
@@ -282,7 +293,9 @@ func main() {
 
 ---
 
-### 3. Contoh Speech-to-Text (ElevenLabs Scribe / Groq Whisper)
+### 3. Contoh Speech-to-Text (ElevenLabs Scribe - Bahasa Indonesia & Inggris)
+
+#### A. Mengunci ke Bahasa Indonesia (`id`)
 ```go
 package main
 
@@ -292,21 +305,69 @@ import (
 )
 
 func main() {
-	// Contoh ElevenLabs Scribe
+	// Zero-Config: model_id, language_code, dan header xi-api-key otomatis disesuaikan!
 	sttCfg := textandspeech.STTConfig{
-		API_KEY:         "sk_0cb17ea21407c2ea4b68ce7e03cc67059df7ea882d8c1665",
-		STT_URL:         "https://api.elevenlabs.io/v1/speech-to-text",
-		STT_MODEL:       "scribe_v2",
-		STT_MODEL_FIELD: "model_id",
-		STT_HEADER:      "xi-api-key",
+		API_KEY:      "sk_0cb17ea21407c2ea4b68ce7e03cc67059df7ea882d8c1665",
+		STT_URL:      "https://api.elevenlabs.io/v1/speech-to-text",
+		STT_MODEL:    "scribe_v1",
+		STT_LANGUAGE: "id", // Mengunci transkripsi ke Bahasa Indonesia
 	}
 
-	// Transkripsikan file rekaman suara ke teks string
-	text, err := textandspeech.Transcribe(sttCfg, "audio_rekaman.wav")
+	text, err := textandspeech.Transcribe(sttCfg, "audio_indonesia.wav")
 	if err != nil {
 		log.Fatalf("Gagal transkripsi: %v", err)
 	}
+	log.Printf("Hasil Transkripsi (ID): %q\n", text)
+}
+```
 
-	log.Printf("Hasil Transkripsi: %q\n", text)
+#### B. Mengunci ke Bahasa Inggris (`en`)
+```go
+package main
+
+import (
+	"log"
+	"text-and-speech"
+)
+
+func main() {
+	sttCfg := textandspeech.STTConfig{
+		API_KEY:      "sk_0cb17ea21407c2ea4b68ce7e03cc67059df7ea882d8c1665",
+		STT_URL:      "https://api.elevenlabs.io/v1/speech-to-text",
+		STT_MODEL:    "scribe_v1",
+		STT_LANGUAGE: "en", // Mengunci transkripsi ke English
+	}
+
+	text, err := textandspeech.Transcribe(sttCfg, "audio_english.wav")
+	if err != nil {
+		log.Fatalf("Gagal transkripsi: %v", err)
+	}
+	log.Printf("Hasil Transkripsi (EN): %q\n", text)
+}
+```
+
+#### C. Mode Dwibahasa Otomatis (Auto-Detect ID / EN)
+```go
+package main
+
+import (
+	"log"
+	"text-and-speech"
+)
+
+func main() {
+	// Cukup set STT_LANGUAGE: "auto" atau kosongkan, model otomatis mengenali dwibahasa
+	sttCfg := textandspeech.STTConfig{
+		API_KEY:      "sk_0cb17ea21407c2ea4b68ce7e03cc67059df7ea882d8c1665",
+		STT_URL:      "https://api.elevenlabs.io/v1/speech-to-text",
+		STT_MODEL:    "scribe_v1",
+		STT_LANGUAGE: "auto", // Deteksi otomatis dwibahasa
+	}
+
+	text, err := textandspeech.Transcribe(sttCfg, "audio_bebas.wav")
+	if err != nil {
+		log.Fatalf("Gagal transkripsi: %v", err)
+	}
+	log.Printf("Hasil Transkripsi Otomatis: %q\n", text)
 }
 ```

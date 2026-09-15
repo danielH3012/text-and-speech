@@ -1,5 +1,7 @@
 package textandspeech
 
+import "strings"
+
 // TTSConfig defines the configuration options for Text-To-Speech (TTS).
 // All settings are provided directly via user input.
 // Supports both exact field names (API_KEY, TTS_URL, etc.) and camelCase aliases (APIKey, URL, etc.).
@@ -59,21 +61,79 @@ func (c TTSConfig) GetAuthPrefix() string {
 	if c.TTS_AUTH_PREFIX != "" {
 		return c.TTS_AUTH_PREFIX
 	}
-	return c.AuthPrefix
+	if c.AuthPrefix != "" {
+		return c.AuthPrefix
+	}
+	url := strings.ToLower(c.GetURL())
+	if strings.Contains(url, "inworld") {
+		return "Basic "
+	}
+	if strings.Contains(url, "elevenlabs") || strings.Contains(url, "cartesia") {
+		return ""
+	}
+	return "Bearer "
+}
+
+func (c TTSConfig) GetAuthHeader() string {
+	if c.AuthHeader != "" {
+		return c.AuthHeader
+	}
+	url := strings.ToLower(c.GetURL())
+	if strings.Contains(url, "elevenlabs") {
+		return "xi-api-key"
+	}
+	if strings.Contains(url, "cartesia") {
+		return "X-API-Key"
+	}
+	return "Authorization"
 }
 
 func (c TTSConfig) GetDecode() string {
 	if c.TTS_DECODE != "" {
 		return c.TTS_DECODE
 	}
-	return c.Decode
+	if c.Decode != "" {
+		return c.Decode
+	}
+	url := strings.ToLower(c.GetURL())
+	if strings.Contains(url, "inworld") {
+		return "base64"
+	}
+	return ""
 }
 
 func (c TTSConfig) GetBodyTemplate() string {
 	if c.TTS_BODY_TEMPLATE != "" {
 		return c.TTS_BODY_TEMPLATE
 	}
-	return c.BodyTemplate
+	if c.BodyTemplate != "" {
+		return c.BodyTemplate
+	}
+
+	url := strings.ToLower(c.GetURL())
+
+	// 1. Inworld AI TTS
+	if strings.Contains(url, "inworld") {
+		return `{"text":"{{.Text}}","voiceId":"{{.Voice}}","modelId":"{{.Model}}"}`
+	}
+
+	// 2. OpenAI / Groq TTS
+	if strings.Contains(url, "openai") {
+		return `{"model":"{{.Model}}","input":"{{.Text}}","voice":"{{.Voice}}"}`
+	}
+
+	// 3. Cartesia TTS (Sonic API)
+	if strings.Contains(url, "cartesia") {
+		return `{"model_id":"{{.Model}}","transcript":"{{.Text}}","voice":{"mode":"id","id":"{{.Voice}}"},"language":"{{.Lang}}"}`
+	}
+
+	// 4. ElevenLabs TTS
+	if strings.Contains(url, "elevenlabs") {
+		return `{"text":"{{.Text}}","model_id":"{{.Model}}"}`
+	}
+
+	// 5. Default generic template
+	return `{"text":"{{.Text}}","voice":"{{.Voice}}","model":"{{.Model}}"}`
 }
 
 // STTConfig defines configuration options for Speech-To-Text (Transcribe).
@@ -149,6 +209,10 @@ func (c STTConfig) GetModelField() string {
 	if c.ModelField != "" {
 		return c.ModelField
 	}
+	url := strings.ToLower(c.GetURL())
+	if strings.Contains(url, "elevenlabs") || strings.Contains(url, "assemblyai") {
+		return "model_id"
+	}
 	return "model"
 }
 
@@ -159,6 +223,30 @@ func (c STTConfig) GetLanguageField() string {
 	if c.LanguageField != "" {
 		return c.LanguageField
 	}
+
+	url := strings.ToLower(c.GetURL())
+
+	// Providers using "language_code" (ElevenLabs, AssemblyAI, Sarvam)
+	if strings.Contains(url, "elevenlabs") || strings.Contains(url, "assemblyai") || strings.Contains(url, "sarvam") {
+		return "language_code"
+	}
+
+	// Google Cloud Speech API ("languageCode")
+	if strings.Contains(url, "googleapis.com") || strings.Contains(url, "google") {
+		return "languageCode"
+	}
+
+	// Azure Cognitive Services ("locale")
+	if strings.Contains(url, "azure.com") || strings.Contains(url, "cognitiveservices") {
+		return "locale"
+	}
+
+	// Yandex SpeechKit ("lang")
+	if strings.Contains(url, "yandex") {
+		return "lang"
+	}
+
+	// Default standard: OpenAI Whisper, Groq, Deepgram, Cloudflare, Rev AI, Faster-Whisper
 	return "language"
 }
 
@@ -169,6 +257,10 @@ func (c STTConfig) GetAuthHeader() string {
 	if c.AuthHeader != "" {
 		return c.AuthHeader
 	}
+	url := strings.ToLower(c.GetURL())
+	if strings.Contains(url, "elevenlabs") {
+		return "xi-api-key"
+	}
 	return "Authorization"
 }
 
@@ -176,7 +268,14 @@ func (c STTConfig) GetAuthPrefix() string {
 	if c.STT_AUTH_PREFIX != "" {
 		return c.STT_AUTH_PREFIX
 	}
-	return c.AuthPrefix
+	if c.AuthPrefix != "" {
+		return c.AuthPrefix
+	}
+	url := strings.ToLower(c.GetURL())
+	if strings.Contains(url, "elevenlabs") || strings.Contains(url, "assemblyai") {
+		return ""
+	}
+	return "Bearer "
 }
 
 // SynthesizeInput represents parameters for synthesizing speech from text.
